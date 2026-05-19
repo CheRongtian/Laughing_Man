@@ -1,3 +1,5 @@
+from ctypes import resize
+
 import cv2
 import numpy as np
 import math
@@ -8,6 +10,12 @@ try:
     model = YOLO('yolov8n-face.pt')
 except Exception as e:
     print(f"Error loading model. Make sure you are connected to internet on first run.\n{e}")
+    exit()
+
+# load image for replacement
+overlay_img = cv2.imread('images.jpeg')
+if overlay_img is None:
+    print("Error: Could not load 'images.jpeg'.")
     exit()
 
 cap = cv2.VideoCapture(0)
@@ -23,7 +31,18 @@ while cap.isOpened():
     if results.boxes:
         for box in results.boxes:
             x1, y1, x2, y2 = map(int, box.xyxy[0])
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
+
+            # boundry check
+            x1, y1 = max(0, x1), max(0, y1)
+            x2, y2 = min(frame.shape[1], x2), min(frame.shape[0], y2)
+
+            w = x2 - x1
+            h = y2 - y1
+
+            if w > 0 and h > 0:
+                resized_overlay = cv2.resize(overlay_img, (w, h))
+                frame[y1:y2, x1:x2] = resized_overlay
+            #cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
 
     # key point(landmarks: eyes, nose, mouth)
     if results.keypoints:
@@ -32,7 +51,7 @@ while cap.isOpened():
                 x, y = int(kp[0]), int(kp[1])
                 cv2.circle(frame, (x, y), 3, (0, 255, 0), -1)
 
-    cv2.imshow('Laughing Man - Phase 1', frame)
+    cv2.imshow('Laughing Man - Phase 2: add pics', frame)
 
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
