@@ -13,9 +13,9 @@ except Exception as e:
     exit()
 
 # load image for replacement
-overlay_img = cv2.imread('images.jpeg')
+overlay_img = cv2.imread('images2.png', cv2.IMREAD_UNCHANGED)
 if overlay_img is None:
-    print("Error: Could not load 'images.jpeg'.")
+    print("Error: Could not load 'images2.png'.")
     exit()
 
 cap = cv2.VideoCapture(0)
@@ -29,19 +29,66 @@ while cap.isOpened():
 
     # bounding box
     if results.boxes:
+        # get original overlay dimensions to keep aspect ratio
+        orig_h, orig_w = overlay_img.shape[:2]
+        frame_h, frame_w = frame.shape[:2]
+
         for box in results.boxes:
             x1, y1, x2, y2 = map(int, box.xyxy[0])
 
-            # boundry check
-            x1, y1 = max(0, x1), max(0, y1)
-            x2, y2 = min(frame.shape[1], x2), min(frame.shape[0], y2)
+            # calculate the centre of the face
+            centre_x = (x1 + x2) // 2
+            centre_y = (y1 + y2) // 2
 
-            w = x2 - x1
-            h = y2 - y1
+            #use the max dimension of the bounding box to ensure it covers the whole face
+            box_size = max(x2 - x1, y2 - y1)
 
-            if w > 0 and h > 0:
-                resized_overlay = cv2.resize(overlay_img, (w, h))
-                frame[y1:y2, x1:x2] = resized_overlay
+            #scale up the box size to cover the whole face
+            scale_factor = 1.6
+
+            # calculate target dimensions keeping original aspect ratio
+            target_w = int(box_size * scale_factor)
+            target_h = int(target_w * (orig_h / orig_w))
+
+            # calculate new coordinates centered on the face
+            new_x1 = centre_x - target_w // 2
+            new_y1 = centre_y - target_h // 2
+            new_x2 = new_x1 + target_w
+            new_y2 = new_y1 + target_h
+
+            # calculate safe boundaries for the frame (prevent crashing at screen edges)
+            fx1, fy1 = max(0, new_x1), max(0, new_y1)
+            fx2, fy2 = min(frame_w, new_x2), min(frame_h, new_y2)
+
+            # calculate corresponding boundaries for the overlay image to crop it
+            ox1, oy1 = fx1 - new_x1, fy1 - new_y1
+            ox2, oy2 = target_w - (new_x2 - fx2), target_h - (new_y2 - fy2)
+            
+            # w = x2 - x1
+            # h = y2 - y1
+
+            if fx2 > fx1 and fy2 > fy1:
+                resized_overlay = cv2.resize(overlay_img, (target_w, target_h))
+                # crop overlay if it goes outside the camera frame
+                cropped_overlay = resized_overlay[oy1:oy2, ox1:ox2]
+
+                # check if the overlay image has an alpha channel(4 channels)
+                if cropped_overlay.shape[2] == 4:
+                    # extract the alpha mask and normalize it to 0.0 ~ 1.0
+                    alpha_mask = cropped_overlay[:, :, 3] / 255.0
+                    
+                    # extract the BGR colour channels
+                    overlay_bgr = cropped_overlay[:, :, :3]
+                    
+                    # extract the region of interest(roi) from the frame
+                    roi = frame[fy1:fy2, fx1:fx2]
+
+                    # blend the overlay and the roi using the alpha mask
+                    for c in range(3):
+                        roi[:, :, c] = (alpha_mask * overlay_bgr[:, :, c]) + (1.0 - alpha_mask) * roi[:, :, c]
+                else:
+                    # fallback if there is no alpha channel
+                    frame[fy1:fy2, fx1:fx2] = cropped_overlay
             #cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
 
     # key point(landmarks: eyes, nose, mouth)
