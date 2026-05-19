@@ -33,22 +33,45 @@ while cap.isOpened():
         orig_h, orig_w = overlay_img.shape[:2]
         frame_h, frame_w = frame.shape[:2]
 
-        for box in results.boxes:
+        for i, box in enumerate(results.boxes):
             x1, y1, x2, y2 = map(int, box.xyxy[0])
 
             # calculate the centre of the face
             centre_x = (x1 + x2) // 2
             centre_y = (y1 + y2) // 2
 
-            #use the max dimension of the bounding box to ensure it covers the whole face
-            box_size = max(x2 - x1, y2 - y1)
+            # initialize the adjusted centre point
+            adjusted_centre_x = centre_x
+            adjusted_centre_y = centre_y
+
+            # dynamic pose compensation (prevent misalignment)
+            if results.keypoints is not None and len(results.keypoints.data) > i:
+                kp_set = results.keypoints.data[i]
+                if len(kp_set) >= 3:
+                    nose_x = int(kp_set[2][0])
+                    nose_y = int(kp_set[2][1])
+
+                    # calculate the distance of the nose from the face box centre
+                    nose_offset_x = nose_x - centre_x
+                    nose_offset_y = nose_y - centre_y
+
+                    # compensation factors
+                    yaw_compensation = 1.3
+                    pitch_compensation = 1.2
+
+                    # reserve offset the overlay centre point based on nose position
+                    adjusted_centre_x = centre_x - int(nose_offset_x * yaw_compensation)
+                    adjusted_centre_y = centre_y - int(nose_offset_y * pitch_compensation)
+
+            # get the actual face height, ignoring width changes, preventing overlay from shrinking
+            face_h = y2 - y1
 
             #scale up the box size to cover the whole face
             scale_factor = 1.6
 
             # calculate target dimensions keeping original aspect ratio
-            target_w = int(box_size * scale_factor)
-            target_h = int(target_w * (orig_h / orig_w))
+            target_h = int(face_h * scale_factor)
+            target_w = int(target_h * (orig_w / orig_h))
 
             # calculate new coordinates centered on the face
             new_x1 = centre_x - target_w // 2
